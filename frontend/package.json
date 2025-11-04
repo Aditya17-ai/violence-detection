@@ -21,7 +21,8 @@
     "socket.io-client": "^4.7.4",
     "axios": "^1.6.2",
     "clsx": "^2.0.0",
-    "lucide-react": "^0.294.0"
+    "react-hot-toast": "^2.4.1",
+    "@heroicons/react": "^2.0.18"
   },
   "devDependencies": {
     "@types/react": "^18.2.37",

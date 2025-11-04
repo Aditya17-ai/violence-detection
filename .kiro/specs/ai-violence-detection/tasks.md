@@ -55,7 +55,9 @@
     - Implement file size validation and error handling
     - _Requirements: 1.1, 1.2, 1.5_
 
-  - [ ] 3.2 Integrate cloud storage service
+  - [x] 3.2 Integrate cloud storage service
+
+
     - Configure AWS S3 or CloudFlare R2 client
     - Implement secure file upload to cloud storage
     - Create video metadata extraction and storage
@@ -83,9 +85,13 @@
     - Set up async request handling and error middleware
     - _Requirements: 2.1, 2.2, 2.3_
 
+
+
   - [ ] 4.2 Implement video frame extraction service
     - Create OpenCV-based frame extraction functionality
     - Implement frame extraction at 1-second intervals
+
+
     - Add video format validation and error handling
     - _Requirements: 2.1_
 
@@ -111,10 +117,14 @@
     - Test API endpoint responses and error handling
     - _Requirements: 2.1, 2.2, 2.3_
 
+
+
 - [ ] 5. Implement job queue and processing system
   - [ ] 5.1 Set up Bull Queue for video processing
     - Configure Redis-based job queue with Bull
     - Create job processors for video analysis tasks
+
+
     - Implement job progress tracking and error handling
     - _Requirements: 5.1, 5.2_
 
@@ -175,6 +185,8 @@
     - Implement main layout component with responsive design
     - Create navigation header with user-friendly interface
     - Add mobile-responsive sidebar and menu
+
+
     - _Requirements: 4.1, 4.2_
 
   - [ ] 7.4 Write unit tests for core React components

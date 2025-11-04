@@ -10,7 +10,6 @@ export interface UploadResult {
   url: string;
   bucket: string;
   size: number;
-  etag: string;
 }
 
 export interface DownloadResult {
@@ -28,15 +27,11 @@ export class StorageService {
     this.region = process.env.AWS_REGION || 'us-east-1';
     this.bucket = process.env.S3_BUCKET_NAME || 'violence-detection-videos';
 
-    // Configure AWS SDK
-    AWS.config.update({
+    // Configure AWS S3
+    this.s3 = new AWS.S3({
       accessKeyId: process.env.AWS_ACCESS_KEY_ID,
       secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
       region: this.region,
-    });
-
-    this.s3 = new AWS.S3({
-      apiVersion: '2006-03-01',
       signatureVersion: 'v4',
     });
   }
@@ -46,33 +41,36 @@ export class StorageService {
    */
   async uploadFile(
     filePath: string,
-    originalName: string,
+    key?: string,
     contentType?: string
   ): Promise<UploadResult> {
     try {
-      // Generate unique key
-      const extension = path.extname(originalName);
-      const key = `videos/${uuidv4()}${extension}`;
+      // Generate unique key if not provided
+      if (!key) {
+        const extension = path.extname(filePath);
+        key = `videos/${uuidv4()}${extension}`;
+      }
 
       // Read file
       const fileBuffer = await fs.readFile(filePath);
       const fileSize = fileBuffer.length;
 
       // Determine content type
-      const mimeType = contentType || FileSystemUtils.getMimeType(originalName);
+      if (!contentType) {
+        contentType = FileSystemUtils.getMimeType(filePath);
+      }
 
       // Upload parameters
       const uploadParams: AWS.S3.PutObjectRequest = {
         Bucket: this.bucket,
         Key: key,
         Body: fileBuffer,
-        ContentType: mimeType,
-        ContentLength: fileSize,
-        Metadata: {
-          originalName: originalName,
-          uploadedAt: new Date().toISOString(),
-        },
+        ContentType: contentType,
         ServerSideEncryption: 'AES256',
+        Metadata: {
+          'uploaded-at': new Date().toISOString(),
+          'original-name': path.basename(filePath),
+        },
       };
 
       // Upload to S3
@@ -83,11 +81,46 @@ export class StorageService {
         url: result.Location!,
         bucket: result.Bucket!,
         size: fileSize,
-        etag: result.ETag!,
       };
     } catch (error) {
       console.error('S3 upload error:', error);
-      throw createError(`Failed to upload file to cloud storage: ${error}`, 500);
+      throw createError(`Failed to upload file to storage: ${error}`, 500);
+    }
+  }
+
+  /**
+   * Upload file buffer to S3
+   */
+  async uploadBuffer(
+    buffer: Buffer,
+    key: string,
+    contentType: string,
+    metadata?: Record<string, string>
+  ): Promise<UploadResult> {
+    try {
+      const uploadParams: AWS.S3.PutObjectRequest = {
+        Bucket: this.bucket,
+        Key: key,
+        Body: buffer,
+        ContentType: contentType,
+        ServerSideEncryption: 'AES256',
+        Metadata: {
+          'uploaded-at': new Date().toISOString(),
+          ...metadata,
+        },
+      };
+
+      const result = await this.s3.upload(uploadParams).promise();
+
+      return {
+        key: result.Key!,
+        url: result.Location!,
+        bucket: result.Bucket!,
+        size: buffer.length,
+      };
+    } catch (error) {
+      console.error('S3 buffer upload error:', error);
+      throw createError(`Failed to upload buffer to storage: ${error}`, 500);
     }
   }
 
@@ -103,14 +136,43 @@ export class StorageService {
 
       const result = await this.s3.getObject(params).promise();
 
+      if (!result.Body) {
+        throw createError('File not found in storage', 404);
+      }
+
       return {
         buffer: result.Body as Buffer,
         contentType: result.ContentType || 'application/octet-stream',
         contentLength: result.ContentLength || 0,
       };
     } catch (error) {
+      if ((error as any).statusCode === 404) {
+        throw createError('File not found in storage', 404);
+      }
       console.error('S3 download error:', error);
-      throw createError(`Failed to download file from cloud storage: ${error}`, 500);
+      throw createError(`Failed to download file from storage: ${error}`, 500);
+    }
+  }
+
+  /**
+   * Get signed URL for file access
+   */
+  async getSignedUrl(
+    key: string,
+    operation: 'getObject' | 'putObject' = 'getObject',
+    expiresIn: number = 3600
+  ): Promise<string> {
+    try {
+      const params = {
+        Bucket: this.bucket,
+        Key: key,
+        Expires: expiresIn,
+      };
+
+      return await this.s3.getSignedUrlPromise(operation, params);
+    } catch (error) {
+      console.error('S3 signed URL error:', error);
+      throw createError(`Failed to generate signed URL: ${error}`, 500);
     }
   }
 
@@ -133,65 +195,6 @@ export class StorageService {
   }
 
   /**
-   * Generate presigned URL for direct upload
-   */
-  async generatePresignedUploadUrl(
-    originalName: string,
-    contentType: string,
-    expiresIn: number = 3600
-  ): Promise<{ url: string; key: string; fields: Record<string, string> }> {
-    try {
-      const extension = path.extname(originalName);
-      const key = `videos/${uuidv4()}${extension}`;
-
-      const params = {
-        Bucket: this.bucket,
-        Key: key,
-        Expires: expiresIn,
-        ContentType: contentType,
-        Conditions: [
-          ['content-length-range', 0, parseInt(process.env.MAX_FILE_SIZE || '500000000')],
-          ['starts-with', '$Content-Type', 'video/'],
-        ],
-      };
-
-      const presignedPost = await new Promise<AWS.S3.PresignedPost>((resolve, reject) => {
-        this.s3.createPresignedPost(params, (err, data) => {
-          if (err) reject(err);
-          else resolve(data);
-        });
-      });
-
-      return {
-        url: presignedPost.url,
-        key: key,
-        fields: presignedPost.fields,
-      };
-    } catch (error) {
-      console.error('Presigned URL generation error:', error);
-      throw createError(`Failed to generate upload URL: ${error}`, 500);
-    }
-  }
-
-  /**
-   * Generate presigned URL for download
-   */
-  async generatePresignedDownloadUrl(key: string, expiresIn: number = 3600): Promise<string> {
-    try {
-      const params = {
-        Bucket: this.bucket,
-        Key: key,
-        Expires: expiresIn,
-      };
-
-      return await this.s3.getSignedUrlPromise('getObject', params);
-    } catch (error) {
-      console.error('Presigned download URL generation error:', error);
-      throw createError(`Failed to generate download URL: ${error}`, 500);
-    }
-  }
-
-  /**
    * Check if file exists in S3
    */
   async fileExists(key: string): Promise<boolean> {
@@ -209,9 +212,9 @@ export class StorageService {
   }
 
   /**
-   * Get file metadata
+   * Get file metadata from S3
    */
-  async getFileMetadata(key: string): Promise<AWS.S3.HeadObjectOutput | null> {
+  async getFileMetadata(key: string): Promise<AWS.S3.HeadObjectOutput> {
     try {
       const params: AWS.S3.HeadObjectRequest = {
         Bucket: this.bucket,
@@ -220,25 +223,32 @@ export class StorageService {
 
       return await this.s3.headObject(params).promise();
     } catch (error) {
-      return null;
+      if ((error as any).statusCode === 404) {
+        throw createError('File not found in storage', 404);
+      }
+      console.error('S3 metadata error:', error);
+      throw createError(`Failed to get file metadata: ${error}`, 500);
     }
   }
 
   /**
-   * List files with prefix
+   * List files in S3 bucket
    */
-  async listFiles(prefix: string = 'videos/', maxKeys: number = 1000): Promise<AWS.S3.Object[]> {
+  async listFiles(
+    prefix?: string,
+    maxKeys: number = 1000
+  ): Promise<AWS.S3.Object[]> {
     try {
       const params: AWS.S3.ListObjectsV2Request = {
         Bucket: this.bucket,
-        Prefix: prefix,
         MaxKeys: maxKeys,
+        Prefix: prefix,
       };
 
       const result = await this.s3.listObjectsV2(params).promise();
       return result.Contents || [];
     } catch (error) {
-      console.error('S3 list files error:', error);
+      console.error('S3 list error:', error);
       throw createError(`Failed to list files: ${error}`, 500);
     }
   }
@@ -252,12 +262,30 @@ export class StorageService {
         Bucket: this.bucket,
         CopySource: `${this.bucket}/${sourceKey}`,
         Key: destinationKey,
+        ServerSideEncryption: 'AES256',
       };
 
       await this.s3.copyObject(params).promise();
       return true;
     } catch (error) {
       console.error('S3 copy error:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Move file within S3 (copy + delete)
+   */
+  async moveFile(sourceKey: string, destinationKey: string): Promise<boolean> {
+    try {
+      const copySuccess = await this.copyFile(sourceKey, destinationKey);
+      if (copySuccess) {
+        await this.deleteFile(sourceKey);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('S3 move error:', error);
       return false;
     }
   }
@@ -292,7 +320,7 @@ export class StorageService {
   }
 
   /**
-   * Cleanup old files
+   * Cleanup old files (older than specified days)
    */
   async cleanupOldFiles(olderThanDays: number = 30): Promise<number> {
     try {
@@ -319,13 +347,13 @@ export class StorageService {
   }
 
   /**
-   * Health check for S3 connection
+   * Health check for storage service
    */
   async healthCheck(): Promise<{ status: 'healthy' | 'unhealthy'; latency?: number }> {
     try {
       const start = Date.now();
       
-      // Try to list objects (lightweight operation)
+      // Try to list objects (minimal operation)
       await this.s3.listObjectsV2({
         Bucket: this.bucket,
         MaxKeys: 1,
@@ -335,7 +363,7 @@ export class StorageService {
       
       return { status: 'healthy', latency };
     } catch (error) {
-      console.error('S3 health check failed:', error);
+      console.error('Storage health check failed:', error);
       return { status: 'unhealthy' };
     }
   }

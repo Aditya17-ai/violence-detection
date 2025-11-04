@@ -193,7 +193,7 @@ export class VideoController {
     }
 
     // Generate presigned URL for streaming
-    const streamUrl = await storageService.generatePresignedDownloadUrl(video.storage_path, 3600);
+    const streamUrl = await storageService.getSignedUrl(video.storage_path, 'getObject', 3600);
     
     // Redirect to presigned URL for streaming
     res.redirect(streamUrl);

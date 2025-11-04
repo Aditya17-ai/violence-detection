@@ -2,9 +2,9 @@ import { Request, Response } from 'express';
 import { Analysis } from '@/models/Analysis';
 import { Video } from '@/models/Video';
 import { ViolenceDetection } from '@/models/ViolenceDetection';
-import { asyncHandler, createError } from '@/middleware/errorHandler';
 import { QueueService } from '@/services/QueueService';
 import { CacheService } from '@/services/CacheService';
+import { asyncHandler, createError } from '@/middleware/errorHandler';
 
 export class AnalysisController {
   private static queueService = new QueueService();
@@ -14,8 +14,7 @@ export class AnalysisController {
     const { videoId } = req.params;
     const { 
       confidenceThreshold = 0.7, 
-      frameInterval = 1,
-      priority = 0 
+      frameInterval = 1 
     } = req.body;
 
     if (!videoId) {
@@ -28,54 +27,76 @@ export class AnalysisController {
       throw createError('Video not found', 404);
     }
 
-    // Check if analysis already exists for this video
+    // Check if analysis already exists and is not failed
     const existingAnalysis = await Analysis.findOne({
       where: { 
         video_id: videoId,
-        status: ['pending', 'processing']
+        status: ['pending', 'processing', 'completed']
       }
     });
 
     if (existingAnalysis) {
-      throw createError('Analysis already in progress for this video', 409);
+      if (existingAnalysis.status === 'completed') {
+        return res.json({
+          success: true,
+          message: 'Analysis already completed',
+          data: {
+            analysisId: existingAnalysis.id,
+            status: existingAnalysis.status,
+            progress: existingAnalysis.progress,
+          }
+        });
+      } else {
+        return res.json({
+          success: true,
+          message: 'Analysis already in progress',
+          data: {
+            analysisId: existingAnalysis.id,
+            status: existingAnalysis.status,
+            progress: existingAnalysis.progress,
+          }
+        });
+      }
     }
 
-    // Create analysis record
-    const analysis = await Analysis.create({
-      video_id: videoId,
-      status: 'pending',
-      progress: 0,
-      confidence_threshold: confidenceThreshold,
-    });
-
-    // Add job to queue
     try {
-      await this.queueService.addVideoAnalysisJob(
+      // Create new analysis record
+      const analysis = await Analysis.create({
+        video_id: videoId,
+        status: 'pending',
+        progress: 0,
+        confidence_threshold: confidenceThreshold,
+      });
+
+      // Add job to queue
+      const job = await AnalysisController.queueService.addVideoAnalysisJob(
         analysis.id,
         videoId,
-        confidenceThreshold,
-        frameInterval,
-        priority
+        video.storage_path,
+        {
+          confidenceThreshold,
+          frameInterval,
+        }
       );
 
-      // Increment analysis counter
-      await CacheService.incrementCounter('analyses_started');
+      // Cache initial progress
+      await CacheService.cacheAnalysisProgress(analysis.id, 0);
 
       res.status(201).json({
         success: true,
         message: 'Analysis started successfully',
         data: {
           analysisId: analysis.id,
-          videoId: video.id,
+          jobId: job.id,
           status: analysis.status,
-          confidenceThreshold: analysis.confidence_threshold,
-          createdAt: analysis.started_at,
-        },
+          progress: analysis.progress,
+          estimatedDuration: video.duration ? Math.ceil(video.duration / 60) : null, // rough estimate in minutes
+        }
       });
+
     } catch (error) {
-      // Clean up analysis record if job creation fails
-      await analysis.destroy();
-      throw createError(`Failed to start analysis: ${error.message}`, 500);
+      console.error('Error starting analysis:', error);
+      throw createError('Failed to start analysis', 500);
     }
   });
 
@@ -103,27 +124,24 @@ export class AnalysisController {
       include: [
         {
           model: Video,
-          attributes: ['id', 'filename', 'original_name', 'duration', 'format'],
+          attributes: ['id', 'filename', 'original_name', 'duration', 'format']
         },
         {
           model: ViolenceDetection,
-          order: [['timestamp_seconds', 'ASC']],
-        },
-      ],
+          order: [['timestamp_seconds', 'ASC']]
+        }
+      ]
     });
 
     if (!analysis) {
       throw createError('Analysis not found', 404);
     }
 
-    // Get job status if still processing
-    let jobStatus = null;
-    if (analysis.status === 'processing' || analysis.status === 'pending') {
-      jobStatus = await this.queueService.getJobStatus(analysisId);
+    // Get summary if completed
+    let summary = null;
+    if (analysis.status === 'completed') {
+      summary = await analysis.getSummary();
     }
-
-    // Get analysis summary
-    const summary = await analysis.getSummary();
 
     const result = {
       id: analysis.id,
@@ -144,24 +162,24 @@ export class AnalysisController {
         format: analysis.video.format,
         durationFormatted: analysis.video.durationFormatted,
       } : null,
-      detections: analysis.detections.map(detection => ({
+      detections: analysis.detections?.map(detection => ({
         id: detection.id,
         timestampSeconds: detection.timestamp_seconds,
-        timestampFormatted: detection.timestampFormatted,
         confidenceScore: detection.confidence_score,
-        confidencePercentage: detection.confidencePercentage,
         frameNumber: detection.frame_number,
-        severityLevel: detection.severityLevel,
         boundingBoxes: detection.bounding_boxes,
-        createdAt: detection.created_at,
-      })),
+        timestampFormatted: detection.timestampFormatted,
+        confidencePercentage: detection.confidencePercentage,
+        severityLevel: detection.severityLevel,
+      })) || [],
       summary,
-      jobStatus,
+      duration: analysis.duration,
+      violencePercentage: analysis.violencePercentage,
     };
 
-    // Cache completed results
+    // Cache result if completed
     if (analysis.status === 'completed') {
-      await CacheService.cacheAnalysisResult(analysisId, result, 86400); // Cache for 24 hours
+      await CacheService.cacheAnalysisResult(analysisId, result);
     }
 
     res.json({
@@ -179,30 +197,43 @@ export class AnalysisController {
     }
 
     const analysis = await Analysis.findByPk(analysisId);
+    
     if (!analysis) {
       throw createError('Analysis not found', 404);
     }
 
-    if (analysis.status !== 'processing' && analysis.status !== 'pending') {
-      throw createError('Analysis is not in progress', 400);
+    if (analysis.status === 'completed') {
+      return res.json({
+        success: false,
+        message: 'Analysis already completed',
+      });
     }
 
-    // Cancel the job
-    const cancelled = await this.queueService.cancelJob(analysisId);
-    
-    if (cancelled) {
+    if (analysis.status === 'failed') {
+      return res.json({
+        success: false,
+        message: 'Analysis already failed',
+      });
+    }
+
+    try {
+      // Update analysis status
+      await analysis.update({
+        status: 'cancelled',
+        completed_at: new Date(),
+        error_message: 'Analysis cancelled by user',
+      });
+
       // Clear cache
       await CacheService.deleteAnalysisCache(analysisId);
 
       res.json({
         success: true,
         message: 'Analysis stopped successfully',
-        data: {
-          analysisId: analysis.id,
-          status: 'cancelled',
-        },
       });
-    } else {
+
+    } catch (error) {
+      console.error('Error stopping analysis:', error);
       throw createError('Failed to stop analysis', 500);
     }
   });
@@ -232,8 +263,8 @@ export class AnalysisController {
       include: [
         {
           model: Video,
-          attributes: ['id', 'filename', 'original_name', 'format', 'file_size'],
-        },
+          attributes: ['id', 'filename', 'original_name', 'duration', 'format']
+        }
       ],
       limit,
       offset,
@@ -252,18 +283,19 @@ export class AnalysisController {
           progress: analysis.progress,
           startedAt: analysis.started_at,
           completedAt: analysis.completed_at,
-          duration: analysis.duration,
           totalFrames: analysis.total_frames,
           violentFrames: analysis.violent_frames,
-          violencePercentage: analysis.violencePercentage,
           confidenceThreshold: analysis.confidence_threshold,
           errorMessage: analysis.error_message,
+          duration: analysis.duration,
+          violencePercentage: analysis.violencePercentage,
           video: analysis.video ? {
             id: analysis.video.id,
             filename: analysis.video.filename,
             originalName: analysis.video.original_name,
+            duration: analysis.video.duration,
             format: analysis.video.format,
-            sizeInMB: analysis.video.sizeInMB,
+            durationFormatted: analysis.video.durationFormatted,
           } : null,
         })),
         pagination: {
@@ -287,39 +319,35 @@ export class AnalysisController {
     }
 
     const analysis = await Analysis.findByPk(analysisId);
+    
     if (!analysis) {
       throw createError('Analysis not found', 404);
     }
 
-    // Stop analysis if it's still running
-    if (analysis.status === 'processing' || analysis.status === 'pending') {
-      await this.queueService.cancelJob(analysisId);
+    try {
+      // Delete analysis (cascade will delete detections)
+      await analysis.destroy();
+
+      // Clear cache
+      await CacheService.deleteAnalysisCache(analysisId);
+
+      res.json({
+        success: true,
+        message: 'Analysis deleted successfully',
+      });
+
+    } catch (error) {
+      console.error('Error deleting analysis:', error);
+      throw createError('Failed to delete analysis', 500);
     }
-
-    // Delete analysis (this will cascade delete detections)
-    await analysis.destroy();
-
-    // Clear cache
-    await CacheService.deleteAnalysisCache(analysisId);
-
-    res.json({
-      success: true,
-      message: 'Analysis deleted successfully',
-    });
   });
 
   // Get analysis statistics
   static getAnalysisStats = asyncHandler(async (req: Request, res: Response) => {
-    // Get database stats
     const totalAnalyses = await Analysis.count();
     const completedAnalyses = await Analysis.count({ where: { status: 'completed' } });
     const failedAnalyses = await Analysis.count({ where: { status: 'failed' } });
-    const processingAnalyses = await Analysis.count({ 
-      where: { status: ['processing', 'pending'] } 
-    });
-
-    // Get queue stats
-    const queueStats = await this.queueService.getQueueStats();
+    const processingAnalyses = await Analysis.count({ where: { status: 'processing' } });
 
     // Get recent analyses (last 7 days)
     const sevenDaysAgo = new Date();
@@ -340,27 +368,20 @@ export class AnalysisController {
         completed_at: { [require('sequelize').Op.ne]: null }
       },
       attributes: ['started_at', 'completed_at'],
-      limit: 100, // Last 100 completed analyses
-      order: [['completed_at', 'DESC']],
+      raw: true,
     });
 
     let averageProcessingTime = 0;
     if (completedWithDuration.length > 0) {
       const totalTime = completedWithDuration.reduce((sum, analysis) => {
-        const duration = analysis.completed_at!.getTime() - analysis.started_at.getTime();
+        const duration = new Date(analysis.completed_at!).getTime() - new Date(analysis.started_at).getTime();
         return sum + duration;
       }, 0);
       averageProcessingTime = Math.round(totalTime / completedWithDuration.length / 1000); // in seconds
     }
 
-    // Get violence detection stats
-    const totalDetections = await ViolenceDetection.count();
-    const avgConfidence = await ViolenceDetection.findOne({
-      attributes: [
-        [require('sequelize').fn('AVG', require('sequelize').col('confidence_score')), 'avgConfidence']
-      ],
-      raw: true,
-    });
+    // Get queue statistics
+    const queueStats = await AnalysisController.queueService.getQueueStats();
 
     res.json({
       success: true,
@@ -370,68 +391,34 @@ export class AnalysisController {
         failedAnalyses,
         processingAnalyses,
         recentAnalyses,
-        averageProcessingTimeSeconds: averageProcessingTime,
+        averageProcessingTime,
         successRate: totalAnalyses > 0 ? Math.round((completedAnalyses / totalAnalyses) * 100) : 0,
-        queueStats,
-        detectionStats: {
-          totalDetections,
-          averageConfidence: avgConfidence ? Math.round(avgConfidence.avgConfidence * 10000) / 10000 : 0,
-        },
+        queue: queueStats,
       },
     });
   });
 
-  // Retry failed analysis
-  static retryAnalysis = asyncHandler(async (req: Request, res: Response) => {
-    const { analysisId } = req.params;
+  // Get system status
+  static getSystemStatus = asyncHandler(async (req: Request, res: Response) => {
+    const queueHealth = await AnalysisController.queueService.getHealthStatus();
+    const processingAnalyses = await Analysis.count({ where: { status: 'processing' } });
+    const pendingAnalyses = await Analysis.count({ where: { status: 'pending' } });
 
-    if (!analysisId) {
-      throw createError('Analysis ID is required', 400);
-    }
+    const systemLoad = {
+      processing: processingAnalyses,
+      pending: pendingAnalyses,
+      queueHealth: queueHealth.status,
+      queueStats: queueHealth.stats,
+    };
 
-    const analysis = await Analysis.findByPk(analysisId, {
-      include: [Video],
-    });
-
-    if (!analysis) {
-      throw createError('Analysis not found', 404);
-    }
-
-    if (analysis.status !== 'failed') {
-      throw createError('Only failed analyses can be retried', 400);
-    }
-
-    // Reset analysis status
-    await analysis.update({
-      status: 'pending',
-      progress: 0,
-      error_message: null,
-      completed_at: null,
-    });
-
-    // Clear old detections
-    await ViolenceDetection.destroy({
-      where: { analysis_id: analysisId },
-    });
-
-    // Add job to queue again
-    await this.queueService.addVideoAnalysisJob(
-      analysis.id,
-      analysis.video_id,
-      analysis.confidence_threshold,
-      1, // Default frame interval
-      0  // Default priority
-    );
-
-    // Clear cache
-    await CacheService.deleteAnalysisCache(analysisId);
+    const isHealthy = queueHealth.status === 'healthy' && processingAnalyses < 10;
 
     res.json({
       success: true,
-      message: 'Analysis retry started successfully',
       data: {
-        analysisId: analysis.id,
-        status: 'pending',
+        status: isHealthy ? 'healthy' : 'degraded',
+        load: systemLoad,
+        timestamp: new Date().toISOString(),
       },
     });
   });

@@ -55,6 +55,7 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use('/health', healthRouter);
 app.use('/api/videos', require('@/routes/videos').videoRouter);
 app.use('/api/analysis', require('@/routes/analysis').analysisRouter);
+app.use('/api/analysis', require('@/routes/analysis').analysisRouter);
 
 // Socket.io connection handling
 io.on('connection', (socket) => {
