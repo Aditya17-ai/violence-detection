@@ -101,7 +101,7 @@ export default function UploadPage() {
               <button
                 onClick={handleUpload}
                 disabled={!canUpload}
-                className="btn-primary text-lg px-8 py-3"
+                className="inline-flex items-center px-8 py-3 text-lg font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
               >
                 <PlayIcon className="w-5 h-5 mr-2" />
                 Start Analysis
@@ -130,14 +130,14 @@ export default function UploadPage() {
           {/* Process Info */}
           <div className="card p-6">
             <div className="flex items-center space-x-2 mb-4">
-              <InformationCircleIcon className="w-5 h-5 text-primary-600" />
+              <InformationCircleIcon className="w-5 h-5 text-blue-600" />
               <h3 className="font-semibold text-gray-900">How it Works</h3>
             </div>
             
             <div className="space-y-4">
               <div className="flex items-start space-x-3">
-                <div className="w-6 h-6 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <span className="text-xs font-semibold text-primary-600">1</span>
+                <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <span className="text-xs font-semibold text-blue-600">1</span>
                 </div>
                 <div>
                   <p className="text-sm font-medium text-gray-900">Upload Video</p>
@@ -146,8 +146,8 @@ export default function UploadPage() {
               </div>
               
               <div className="flex items-start space-x-3">
-                <div className="w-6 h-6 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <span className="text-xs font-semibold text-primary-600">2</span>
+                <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <span className="text-xs font-semibold text-blue-600">2</span>
                 </div>
                 <div>
                   <p className="text-sm font-medium text-gray-900">AI Analysis</p>
@@ -156,8 +156,8 @@ export default function UploadPage() {
               </div>
               
               <div className="flex items-start space-x-3">
-                <div className="w-6 h-6 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <span className="text-xs font-semibold text-primary-600">3</span>
+                <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <span className="text-xs font-semibold text-blue-600">3</span>
                 </div>
                 <div>
                   <p className="text-sm font-medium text-gray-900">Get Results</p>

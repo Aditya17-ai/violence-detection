@@ -30,8 +30,8 @@ export default function Layout({ children }: LayoutProps) {
             {/* Logo */}
             <div className="flex items-center">
               <Link to="/" className="flex items-center space-x-2">
-                <div className="w-8 h-8 bg-gradient-primary rounded-lg flex items-center justify-center">
-                  <ExclamationTriangleIcon className="w-5 h-5 text-white" />
+                <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                  <ExclamationTriangleIcon className="w-4 h-4 text-white" />
                 </div>
                 <span className="text-xl font-bold text-gray-900">
                   Violence Detection
@@ -50,7 +50,7 @@ export default function Layout({ children }: LayoutProps) {
                     className={clsx(
                       'inline-flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors',
                       isActive
-                        ? 'text-primary-600 bg-primary-50'
+                        ? 'text-blue-600 bg-blue-50'
                         : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
                     )}
                   >
@@ -85,7 +85,7 @@ export default function Layout({ children }: LayoutProps) {
                   className={clsx(
                     'flex items-center px-3 py-2 text-sm font-medium rounded-md whitespace-nowrap transition-colors',
                     isActive
-                      ? 'text-primary-600 bg-primary-50'
+                      ? 'text-blue-600 bg-blue-50'
                       : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
                   )}
                 >

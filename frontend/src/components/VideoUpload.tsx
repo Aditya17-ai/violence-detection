@@ -149,8 +149,8 @@ export default function VideoUpload({
     return (
       <div className="card p-6">
         <div className="text-center">
-          <div className="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <CloudArrowUpIcon className="w-8 h-8 text-primary-600 animate-bounce" />
+          <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <CloudArrowUpIcon className="w-8 h-8 text-blue-600 animate-bounce" />
           </div>
           
           <h3 className="text-lg font-medium text-gray-900 mb-2">
@@ -212,7 +212,7 @@ export default function VideoUpload({
           
           <button
             type="button"
-            className="btn-primary mt-4"
+            className="inline-flex items-center px-4 py-2 mt-4 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
             disabled={isUploading}
           >
             Choose File

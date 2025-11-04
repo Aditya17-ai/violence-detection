@@ -187,6 +187,7 @@
     - Add mobile-responsive sidebar and menu
 
 
+
     - _Requirements: 4.1, 4.2_
 
   - [ ] 7.4 Write unit tests for core React components

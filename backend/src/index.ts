@@ -6,12 +6,12 @@ import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 
-import { errorHandler } from '@/middleware/errorHandler';
-import { validateEnv } from '@/utils/validateEnv';
-import { connectDatabase } from '@/config/database';
-import redisManager from '@/config/redis';
-import { setupDirectories } from '@/scripts/setupDirectories';
-import { healthRouter } from '@/routes/health';
+import { errorHandler } from './middleware/errorHandler';
+import { validateEnv } from './utils/validateEnv';
+import { connectDatabase } from './config/database';
+import redisManager from './config/redis';
+import { setupDirectories } from './scripts/setupDirectories';
+import { healthRouter } from './routes/health';
 
 // Load environment variables
 dotenv.config();
@@ -53,8 +53,8 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Routes
 app.use('/health', healthRouter);
-app.use('/api/videos', require('@/routes/videos').videoRouter);
-app.use('/api/analysis', require('@/routes/analysis').analysisRouter);
+app.use('/api/videos', require('./routes/videos').videoRouter);
+app.use('/api/analysis', require('./routes/analysis').analysisRouter);
 app.use('/api/analysis', require('@/routes/analysis').analysisRouter);
 
 // Socket.io connection handling
@@ -74,7 +74,14 @@ const startServer = async () => {
   try {
     await setupDirectories();
     await connectDatabase();
-    await redisManager.connect();
+    
+    // Try to connect to Redis, but don't fail if it's not available
+    try {
+      await redisManager.connect();
+      console.log('✅ Redis connected successfully');
+    } catch (error) {
+      console.warn('⚠️ Redis connection failed, continuing without Redis:', (error as Error).message);
+    }
     
     server.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
