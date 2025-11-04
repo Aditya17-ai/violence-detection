@@ -1,4 +1,4 @@
-import redisManager from '@/config/redis';
+import redisManager from '../config/redis';
 
 export class CacheService {
   private static readonly DEFAULT_TTL = 3600; // 1 hour

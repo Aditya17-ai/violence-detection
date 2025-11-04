@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import Joi from 'joi';
-import { createError } from '@/middleware/errorHandler';
+import { createError } from './errorHandler';
 
 interface ValidationSchema {
   body?: Joi.ObjectSchema;

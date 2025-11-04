@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
-import { asyncHandler } from '@/middleware/errorHandler';
-import { sequelize } from '@/config/database';
-import { CacheService } from '@/services/CacheService';
+import { asyncHandler } from '../middleware/errorHandler';
+import { sequelize } from '../config/database';
+import { CacheService } from '../services/CacheService';
 
 const router = Router();
 

@@ -1,10 +1,10 @@
 import { Request, Response } from 'express';
-import { Analysis } from '@/models/Analysis';
-import { Video } from '@/models/Video';
-import { ViolenceDetection } from '@/models/ViolenceDetection';
-import { QueueService } from '@/services/QueueService';
-import { CacheService } from '@/services/CacheService';
-import { asyncHandler, createError } from '@/middleware/errorHandler';
+import { Analysis } from '../models/Analysis';
+import { Video } from '../models/Video';
+import { ViolenceDetection } from '../models/ViolenceDetection';
+import { QueueService } from '../services/QueueService';
+import { CacheService } from '../services/CacheService';
+import { asyncHandler, createError } from '../middleware/errorHandler';
 
 export class AnalysisController {
   private static queueService = new QueueService();

@@ -1,7 +1,7 @@
 import multer from 'multer';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { createError } from '@/middleware/errorHandler';
+import { createError } from './errorHandler';
 
 // Allowed video formats
 const ALLOWED_FORMATS = (process.env.ALLOWED_VIDEO_FORMATS || 'mp4,avi,mov,mkv').split(',');

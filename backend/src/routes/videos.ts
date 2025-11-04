@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { VideoController } from '@/controllers/VideoController';
-import { handleVideoUpload } from '@/middleware/upload';
-import { validateRequest } from '@/middleware/validation';
+import { VideoController } from '../controllers/VideoController';
+import { handleVideoUpload } from '../middleware/upload';
+import { validateRequest } from '../middleware/validation';
 import Joi from 'joi';
 
 const router = Router();

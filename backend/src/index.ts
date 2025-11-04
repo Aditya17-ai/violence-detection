@@ -1,8 +1,11 @@
+// Load environment variables first
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
-import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 
@@ -12,9 +15,6 @@ import { connectDatabase } from './config/database';
 import redisManager from './config/redis';
 import { setupDirectories } from './scripts/setupDirectories';
 import { healthRouter } from './routes/health';
-
-// Load environment variables
-dotenv.config();
 
 // Validate environment variables
 validateEnv();

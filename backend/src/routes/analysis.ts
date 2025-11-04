@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { AnalysisController } from '@/controllers/AnalysisController';
-import { validateRequest } from '@/middleware/validation';
+import { AnalysisController } from '../controllers/AnalysisController';
+import { validateRequest } from '../middleware/validation';
 import Joi from 'joi';
 
 const router = Router();

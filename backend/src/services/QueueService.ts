@@ -1,9 +1,9 @@
 import Bull, { Queue, Job, JobOptions } from 'bull';
 import redisManager from '@/config/redis';
-import { Analysis } from '@/models/Analysis';
-import { Video } from '@/models/Video';
-import { ViolenceDetection } from '@/models/ViolenceDetection';
-import { CacheService } from '@/services/CacheService';
+import { Analysis } from '../models/Analysis';
+import { Video } from '../models/Video';
+import { ViolenceDetection } from '../models/ViolenceDetection';
+import { CacheService } from './CacheService';
 import { io } from '../index';
 import axios from 'axios';
 

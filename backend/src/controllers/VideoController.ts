@@ -1,9 +1,9 @@
 import { Request, Response } from 'express';
-import { Video } from '@/models/Video';
-import { asyncHandler, createError } from '@/middleware/errorHandler';
-import { getVideoFileInfo, validateVideoFile } from '@/middleware/upload';
-import { CacheService } from '@/services/CacheService';
-import { StorageService } from '@/services/StorageService';
+import { Video } from '../models/Video';
+import { asyncHandler, createError } from '../middleware/errorHandler';
+import { getVideoFileInfo, validateVideoFile } from '../middleware/upload';
+import { CacheService } from '../services/CacheService';
+import { StorageService } from '../services/StorageService';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -30,13 +30,45 @@ export class VideoController {
       // Get file information
       const fileInfo = getVideoFileInfo(req.file);
 
-      // Upload to cloud storage
-      const storageService = new StorageService();
-      const uploadResult = await storageService.uploadFile(
-        req.file.path,
-        fileInfo.originalName,
-        fileInfo.mimetype
-      );
+      let storagePath = req.file.path;
+      
+      // Try to upload to cloud storage if AWS credentials are available
+      const hasAwsCredentials = process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY;
+      
+      if (hasAwsCredentials) {
+        try {
+          const storageService = new StorageService();
+          const uploadResult = await storageService.uploadFile(
+            req.file.path,
+            fileInfo.originalName,
+            fileInfo.mimetype
+          );
+          storagePath = uploadResult.key;
+          
+          // Clean up local temp file after successful upload
+          try {
+            await fs.unlink(req.file.path);
+          } catch (cleanupError) {
+            console.error('Error cleaning up temp file:', cleanupError);
+          }
+        } catch (storageError) {
+          console.warn('Cloud storage upload failed, using local storage:', (storageError as Error).message);
+          // Keep using local file path
+        }
+      } else {
+        console.log('AWS credentials not configured, using local file storage');
+        // Move file from temp to permanent location
+        const uploadsDir = path.join(process.cwd(), 'uploads');
+        const permanentPath = path.join(uploadsDir, fileInfo.filename);
+        
+        try {
+          await fs.rename(req.file.path, permanentPath);
+          storagePath = permanentPath;
+        } catch (moveError) {
+          console.error('Error moving file to uploads directory:', moveError);
+          // Keep original temp path as fallback
+        }
+      }
 
       // Create video record in database
       const video = await Video.create({
@@ -44,16 +76,9 @@ export class VideoController {
         original_name: fileInfo.originalName,
         file_size: fileInfo.size,
         format: fileInfo.format,
-        storage_path: uploadResult.key, // Store S3 key instead of local path
+        storage_path: storagePath,
         // user_id: req.user?.id, // Will be implemented when authentication is added
       });
-
-      // Clean up local temp file
-      try {
-        await fs.unlink(req.file.path);
-      } catch (cleanupError) {
-        console.error('Error cleaning up temp file:', cleanupError);
-      }
 
       // Cache video metadata
       await CacheService.cacheVideoMetadata(video.id, {
@@ -149,11 +174,23 @@ export class VideoController {
     }
 
     try {
-      // Delete from cloud storage
-      const storageService = new StorageService();
-      await storageService.deleteFile(video.storage_path);
+      // Check if this is a local file or cloud storage
+      const isLocalFile = video.storage_path.startsWith('/') || video.storage_path.includes(':\\');
+      
+      if (isLocalFile) {
+        // Delete local file
+        await fs.unlink(video.storage_path);
+      } else {
+        // Delete from cloud storage
+        const hasAwsCredentials = process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY;
+        
+        if (hasAwsCredentials) {
+          const storageService = new StorageService();
+          await storageService.deleteFile(video.storage_path);
+        }
+      }
     } catch (error) {
-      console.error('Error deleting file from cloud storage:', error);
+      console.error('Error deleting physical file:', error);
       // Continue with database deletion even if file deletion fails
     }
 
@@ -183,21 +220,73 @@ export class VideoController {
       throw createError('Video not found', 404);
     }
 
-    // Get file from cloud storage
-    const storageService = new StorageService();
+    // Check if this is a local file or cloud storage
+    const isLocalFile = video.storage_path.startsWith('/') || video.storage_path.includes(':\\');
     
-    // Check if file exists in cloud storage
-    const fileExists = await storageService.fileExists(video.storage_path);
-    if (!fileExists) {
-      throw createError('Video file not found in storage', 404);
-    }
+    if (isLocalFile) {
+      // Handle local file streaming
+      try {
+        await fs.access(video.storage_path);
+      } catch (error) {
+        throw createError('Video file not found on disk', 404);
+      }
 
-    // Generate presigned URL for streaming
-    const streamUrl = await storageService.getSignedUrl(video.storage_path, 'getObject', 3600);
-    
-    // Redirect to presigned URL for streaming
-    res.redirect(streamUrl);
-    return;
+      // Get file stats
+      const stat = await fs.stat(video.storage_path);
+      const fileSize = stat.size;
+      const range = req.headers.range;
+
+      if (range) {
+        // Handle range requests for video streaming
+        const parts = range.replace(/bytes=/, '').split('-');
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+        const chunksize = (end - start) + 1;
+
+        res.status(206);
+        res.set({
+          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': chunksize.toString(),
+          'Content-Type': `video/${video.format}`,
+        });
+
+        // Create read stream for the requested range
+        const stream = require('fs').createReadStream(video.storage_path, { start, end });
+        stream.pipe(res);
+      } else {
+        // Send entire file
+        res.set({
+          'Content-Length': fileSize.toString(),
+          'Content-Type': `video/${video.format}`,
+          'Accept-Ranges': 'bytes',
+        });
+
+        const stream = require('fs').createReadStream(video.storage_path);
+        stream.pipe(res);
+      }
+    } else {
+      // Handle cloud storage
+      const hasAwsCredentials = process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY;
+      
+      if (!hasAwsCredentials) {
+        throw createError('Cloud storage not configured', 500);
+      }
+
+      const storageService = new StorageService();
+      
+      // Check if file exists in cloud storage
+      const fileExists = await storageService.fileExists(video.storage_path);
+      if (!fileExists) {
+        throw createError('Video file not found in storage', 404);
+      }
+
+      // Generate presigned URL for streaming
+      const streamUrl = await storageService.getSignedUrl(video.storage_path, 'getObject', 3600);
+      
+      // Redirect to presigned URL for streaming
+      res.redirect(streamUrl);
+    }
     // Note: The redirect above handles the streaming
     // This code is kept for reference but won't be reached
   });

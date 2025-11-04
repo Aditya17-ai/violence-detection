@@ -1,4 +1,4 @@
-import { FileSystemUtils } from '@/utils/fileSystem';
+import { FileSystemUtils } from '../utils/fileSystem';
 import path from 'path';
 
 /**

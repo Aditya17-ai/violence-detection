@@ -2,8 +2,8 @@ import AWS from 'aws-sdk';
 import fs from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { createError } from '@/middleware/errorHandler';
-import { FileSystemUtils } from '@/utils/fileSystem';
+import { createError } from '../middleware/errorHandler';
+import { FileSystemUtils } from '../utils/fileSystem';
 
 export interface UploadResult {
   key: string;
