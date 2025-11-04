@@ -1,0 +1,114 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: violence-detection-db
+    environment:
+      POSTGRES_DB: violence_detection
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - violence-detection-network
+
+  # Redis Cache & Queue
+  redis:
+    image: redis:7-alpine
+    container_name: violence-detection-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - violence-detection-network
+
+  # Backend API Service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: violence-detection-backend
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/violence_detection
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: your-jwt-secret-key
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME}
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    networks:
+      - violence-detection-network
+
+  # AI Service
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: violence-detection-ai
+    ports:
+      - "8001:8001"
+    environment:
+      REDIS_URL: redis://redis:6379
+      MODEL_PATH: /app/models
+    depends_on:
+      - redis
+    volumes:
+      - ./ai-service:/app
+      - ai_models:/app/models
+    networks:
+      - violence-detection-network
+
+  # Frontend (for production)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: violence-detection-frontend
+    ports:
+      - "80:80"
+    environment:
+      VITE_API_URL: http://localhost:3000
+      VITE_WS_URL: ws://localhost:3000
+    depends_on:
+      - backend
+    networks:
+      - violence-detection-network
+
+  # NGINX Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: violence-detection-nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - frontend
+      - backend
+      - ai-service
+    networks:
+      - violence-detection-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  ai_models:
+
+networks:
+  violence-detection-network:
+    driver: bridge

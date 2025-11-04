@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: violence-detection-db-dev
+    environment:
+      POSTGRES_DB: violence_detection_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    networks:
+      - violence-detection-dev
+
+  # Redis Cache & Queue
+  redis:
+    image: redis:7-alpine
+    container_name: violence-detection-redis-dev
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_dev_data:/data
+    networks:
+      - violence-detection-dev
+
+volumes:
+  postgres_dev_data:
+  redis_dev_data:
+
+networks:
+  violence-detection-dev:
+    driver: bridge
